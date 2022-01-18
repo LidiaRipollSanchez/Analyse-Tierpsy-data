@@ -1,0 +1,143 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov 18 18:13:43 2019
+
+@author: Lidia
+Code to analyse locomotion features extracted by Tierpsy tracker from multiworm tracking C.elegans videos.
+The code was made following the analysis explained in A.Javer, L.Ripoll-Sanchez, AEX Brown 2018, and it
+was made to compare 7 different strains to an N2 control. 
+The code selectes different groups of features depending on the needs of the experiment and performs a t-test 
+comparing the mutant worms to a control (usually N2), then corrects for multiple comparisons using a FDR two 
+stage correction (that is for independent test and not so dependant on the sample size, so number of features
+selected) and plots a heatmap of the p-values of the comparison. The code has two parts depending on the number
+of features selected: 
+    -In the first part of the code we select a big range of features but we remove redundant features
+    using the Tierpsy-256 set of features described in the aforementioned paper and the midbody features 
+    of the analysis. This big range of features balances compactness and completness of the phenotypic representation of the strains 
+    and it is useful for an accurate classification or for clustering applications where the full spectrum of 
+    differences and similarities would be useful. Tierpsy_256 is a preselected set for this purpose, midbody features
+    is less selected and gives 541 features, but they all are for the midbody region of the worm, in case that is 
+    the part of the worm where the interesting neuron is expressed. In case you are interested in head, tail or other
+    region of the worm use these same lines of code but change '_midbody_' for the part of the worm that you are 
+    interested in. 
+    -In the second part of the code we use the compact Tierpsy_8 and Tierpsy_16 sets of features described in the 
+    aforementioned paper which give classification accuracies of 20.37 ± 0.41% and 28.67 ± 0.45%, respectively (mean ± standard deviation).
+    These smaller ranges of features reduces the multiple testing burden and results in phenotypic fingerprints that can be
+    visualized and understood at a glance. It is useful for defining how to perform new analysis. In this case
+    as the multiple testing problem is almost inexistent (for p-value 0.05, and 16 features you can get 0.8 false positives
+    per strain-control comparison for the 16 features) we do not use correction, which makes the analysis quicker. In case 
+    you would like to use correction, copy the correction part from the first half of the code to the second half.
+In order to run the code: 
+    -Go to the summary file from Tierpsy and add an extra column in excel called 'genotype' based on the video names the info file gives you 
+    for every video summary. 
+    -Change file path to the path of your summary csv file from tierpsy in Import data 'df = pd.read_csv(...)',
+    -For analysis of single worm tracking videos you can uncomment the commented lines in the Filter data 
+    and change '_midbody_' for '_50th' in that case you will take the 50th percentile of the features for 
+    the plate, but given that there is only one worm there is not variability in the same plate. Also selecting
+    single worm during the Tierpsy Tracker analysis gets rid of the non interesting features, so you don't need
+    to do this step and can use the Tierpsy_256 to analyse the features extracted by Tierpsy.
+    -For analysis of multiworm tracking videos you can use the four filtering methods stated before. In case you want 
+    to use Tierpsy_256 run the first half of the code. In case you want to select features for one specific part of the 
+    worm body uncomment the commented lines (df_use = df.filter(regex..) and df_use.insert(1, 'genotype'..)) in the first hald of the code, comment 
+    the line (df_use = df.filter(items = Tierpsy_256))and run that half. In case you want to select a smaller set of features use the 
+    second half of the code, for Tierpsy_16 run the second half as it is, for Tierpsy_8 change the 16 for an 8 in the line 
+    (dfF_16 = dfF.filter(items = Tierpsy_16))
+"""
+
+import matplotlib.pylab as plt
+import pandas as pd
+import numpy as np
+import seaborn as sns
+
+import statsmodels.stats.multitest as smm
+from scipy import stats
+
+#Import data
+df = pd.read_csv('C:/Users/Lidia/Desktop/Generate neuropeptide strains/Neuropeptide_strains_tracking/Summary_files/features_summary_tierpsy_plate_manual_20191105_150622.csv')
+#%% FIRST HALF OF THE CODE
+#Filter data we can use Tierpsy_256 from the'A.Javer, L.Ripoll-Sanchez, AEX Brown 2018 paper', or use a larger dataset uncommenting the commented lines. In the larger dataset (541 features) we take the midbody features of the videos, in case we just care about overall locomotion we don't care about not midbody features)) 
+Tierpsy_256 = ['genotype', 'motion_mode_paused_frequency','motion_mode_paused_fraction','curvature_std_neck_abs_90th','d_curvature_neck_w_backward_abs_90th','angular_velocity_tail_tip_w_backward_abs_IQR','curvature_std_midbody_abs_10th','relative_to_head_base_radial_velocity_head_tip_50th','width_tail_base_w_forward_50th','minor_axis_w_forward_10th','d_relative_to_head_base_angular_velocity_head_tip_w_backward_abs_IQR','d_relative_to_body_radial_velocity_head_tip_w_forward_90th','relative_to_head_base_angular_velocity_head_tip_abs_50th','relative_to_body_radial_velocity_tail_tip_w_backward_10th','d_angular_velocity_tail_base_w_backward_abs_90th','relative_to_body_radial_velocity_hips_w_forward_90th','width_head_base_w_forward_10th','curvature_std_tail_w_forward_abs_90th','d_area_w_backward_10th','d_curvature_mean_hips_w_forward_abs_IQR','relative_to_head_base_radial_velocity_head_tip_w_forward_10th','width_midbody_10th','curvature_head_abs_90th','d_curvature_std_head_w_forward_abs_50th','curvature_mean_head_abs_90th','curvature_std_neck_w_forward_abs_50th','d_width_head_base_IQR','d_minor_axis_w_backward_90th','length_w_backward_10th','width_midbody_w_forward_10th','motion_mode_forward_fraction','curvature_std_head_w_forward_abs_50th','relative_to_neck_radial_velocity_head_tip_50th','motion_mode_backward_frequencycurvature_std_neck_abs_10th','angular_velocity_abs_IQR','length_IQR','d_angular_velocity_head_tip_abs_10th','relative_to_hips_radial_velocity_tail_tip_50th','d_speed_head_tip_50th','relative_to_head_base_radial_velocity_head_tip_w_forward_90th','quirkiness_50th','relative_to_head_base_radial_velocity_head_tip_w_backward_90th','d_width_tail_base_IQR','minor_axis_w_forward_90th','d_relative_to_neck_radial_velocity_head_tip_w_forward_90th','d_relative_to_tail_base_radial_velocity_tail_tip_50th','curvature_head_w_forward_abs_IQR','relative_to_head_base_radial_velocity_head_tip_w_backward_IQR','d_path_curvature_midbody_abs_90th','relative_to_body_radial_velocity_head_tip_w_forward_50th','d_relative_to_head_base_radial_velocity_head_tip_w_backward_50th','d_length_50th','width_midbody_90th','curvature_hips_w_backward_abs_50th','path_transit_time_body_95th','d_length_w_forward_IQR','motion_mode_backward_fractionspeed_head_tip_w_forward_IQR','curvature_std_hips_abs_10th','relative_to_head_base_angular_velocity_head_tip_abs_IQR','d_major_axis_w_backward_50th','d_curvature_std_tail_w_forward_abs_90th','curvature_mean_hips_w_backward_abs_90th','path_coverage_headd_relative_to_tail_base_angular_velocity_tail_tip_w_forward_abs_90th','d_relative_to_head_base_angular_velocity_head_tip_w_backward_abs_90th','relative_to_head_base_radial_velocity_head_tip_w_forward_IQR','width_tail_base_w_backward_IQR','curvature_mean_neck_abs_50th','curvature_std_neck_w_forward_abs_10th','curvature_std_midbody_w_backward_abs_10th','d_major_axis_50th','curvature_hips_abs_90th','relative_to_body_radial_velocity_head_tip_50th','curvature_tail_w_backward_abs_90th','curvature_mean_head_w_forward_abs_50th','d_width_midbody_w_forward_10th','width_midbody_w_backward_50th','relative_to_head_base_radial_velocity_head_tip_10th','curvature_midbody_abs_90th','curvature_tail_abs_90th','curvature_mean_neck_w_forward_abs_IQR','width_tail_base_w_backward_10th','turn_intra_duration_50th','d_relative_to_head_base_angular_velocity_head_tip_w_forward_abs_90th','width_midbody_w_backward_10th','d_curvature_std_head_w_forward_abs_10th','curvature_mean_tail_abs_90th','speed_10th','d_angular_velocity_head_tip_w_forward_abs_90th','relative_to_body_radial_velocity_hips_50th','d_width_tail_base_50th','width_tail_base_10th','d_speed_head_tip_w_forward_50th','d_angular_velocity_head_tip_w_forward_abs_50th','d_width_head_base_w_backward_50th','speed_head_tip_10th','curvature_std_head_abs_IQR','curvature_hips_w_backward_abs_IQR','d_width_midbody_50th','d_speed_head_tip_w_backward_50th','length_w_forward_IQR','width_tail_base_w_backward_50th','curvature_tail_abs_10th','d_width_head_base_w_forward_IQR','d_curvature_std_midbody_w_backward_abs_10th','d_width_head_base_w_forward_50th','width_head_base_10th','d_length_w_backward_IQR','d_curvature_std_hips_w_forward_abs_90th','motion_mode_backward_duration_50th','d_curvature_std_head_abs_90th','d_length_w_backward_10th','curvature_std_midbody_w_backward_abs_50th','curvature_std_midbody_w_backward_abs_90th','relative_to_neck_radial_velocity_head_tip_w_forward_10th','curvature_std_hips_w_backward_abs_IQR','d_path_curvature_tail_w_backward_abs_90th','curvature_head_w_forward_abs_50th','relative_to_body_radial_velocity_neck_50th','relative_to_neck_radial_velocity_head_tip_w_forward_50th','d_relative_to_body_radial_velocity_tail_tip_w_backward_10th','width_head_base_w_forward_50th','curvature_mean_tail_w_backward_abs_90th','curvature_midbody_w_forward_abs_50th','d_relative_to_head_base_radial_velocity_head_tip_50th','length_w_backward_IQR','d_relative_to_neck_radial_velocity_head_tip_w_forward_50th','d_angular_velocity_midbody_w_backward_abs_90th','d_curvature_std_head_w_backward_abs_50th','curvature_std_hips_abs_50th','width_tail_base_90th','relative_to_body_radial_velocity_tail_tip_50th','angular_velocity_head_base_abs_10th','curvature_std_hips_w_backward_abs_90th','d_relative_to_head_base_radial_velocity_head_tip_w_backward_10th','path_curvature_body_abs_10th','speed_w_forward_90th','d_relative_to_body_radial_velocity_neck_w_forward_90th','d_relative_to_body_radial_velocity_tail_tip_w_backward_50th','d_angular_velocity_hips_w_backward_abs_90th','d_relative_to_body_angular_velocity_hips_w_forward_abs_10th','width_midbody_w_forward_50th','d_curvature_mean_tail_w_forward_abs_10th','d_quirkiness_50th','speed_hips_w_backward_90th','d_curvature_hips_w_backward_abs_90th','curvature_mean_tail_w_backward_abs_IQR','d_curvature_mean_hips_w_backward_abs_90th','angular_velocity_tail_base_w_backward_abs_90th','d_width_head_base_50th','path_transit_time_midbody_95th','path_curvature_midbody_w_backward_abs_10th','speed_w_forward_IQRwidth_midbody_50th','d_curvature_neck_w_backward_abs_10th','d_curvature_mean_neck_w_backward_abs_90th','relative_to_hips_radial_velocity_tail_tip_w_forward_IQR','angular_velocity_head_tip_w_forward_abs_50th','d_curvature_mean_head_w_forward_abs_10th','curvature_std_neck_abs_50th','angular_velocity_head_base_abs_50th','curvature_std_midbody_w_backward_abs_IQR','d_curvature_std_neck_w_backward_abs_10th','speed_tail_base_w_forward_IQR','angular_velocity_tail_base_w_forward_abs_50th','d_relative_to_body_radial_velocity_tail_tip_w_forward_IQR','relative_to_tail_base_radial_velocity_tail_tip_50th','d_angular_velocity_midbody_w_backward_abs_50th','curvature_std_neck_w_backward_abs_50th','width_midbody_w_backward_90th','d_relative_to_body_radial_velocity_hips_50th','curvature_std_neck_w_backward_abs_10th','d_relative_to_body_radial_velocity_tail_tip_w_forward_90th','d_curvature_head_w_backward_abs_50th','angular_velocity_head_base_w_forward_abs_10th','d_relative_to_body_angular_velocity_neck_w_backward_abs_10th','d_relative_to_body_angular_velocity_tail_tip_abs_10th','d_curvature_mean_midbody_abs_90th','width_tail_base_w_backward_90th','curvature_std_midbody_abs_90th','d_curvature_midbody_w_backward_abs_10th','curvature_tail_w_forward_abs_90th','curvature_std_midbody_abs_50th','angular_velocity_head_base_w_forward_abs_50th','speed_head_tip_w_forward_50th','d_curvature_head_w_forward_abs_10th','angular_velocity_head_tip_w_backward_abs_IQR','d_curvature_hips_w_backward_abs_10th','d_relative_to_body_radial_velocity_neck_w_forward_10th','d_relative_to_tail_base_radial_velocity_tail_tip_w_forward_10th','minor_axis_10th','speed_head_tip_w_forward_10th','d_relative_to_body_angular_velocity_hips_w_backward_abs_90th','d_curvature_mean_hips_abs_IQR','relative_to_tail_base_radial_velocity_tail_tip_90th','relative_to_neck_radial_velocity_head_tip_w_forward_90th','d_curvature_mean_hips_abs_90th','curvature_hips_abs_10th','d_major_axis_w_forward_IQR','d_angular_velocity_head_base_w_forward_abs_90th','curvature_std_midbody_abs_IQR','relative_to_tail_base_radial_velocity_tail_tip_w_backward_90th','curvature_midbody_abs_IQR','speed_head_tip_w_backward_10th','curvature_std_head_abs_90th','width_midbody_w_forward_90th','d_angular_velocity_midbody_w_backward_abs_IQR','d_curvature_hips_abs_90th','d_length_w_backward_90th','d_curvature_mean_head_w_backward_abs_50th','relative_to_body_radial_velocity_head_tip_w_backward_50th','relative_to_neck_radial_velocity_head_tip_w_forward_IQR','d_curvature_mean_head_w_forward_abs_50th','d_angular_velocity_abs_10th' ,'angular_velocity_head_base_w_backward_abs_90th','d_major_axis_w_forward_10th','curvature_tail_w_forward_abs_10th','d_length_10th','d_curvature_std_hips_w_backward_abs_IQR','d_angular_velocity_head_tip_abs_90th','d_length_90th','d_angular_velocity_tail_base_w_backward_abs_50th','d_curvature_std_head_abs_IQR','curvature_mean_hips_w_backward_abs_IQRspeed_tail_base_w_backward_90th','angular_velocity_head_base_w_backward_abs_IQR','relative_to_neck_radial_velocity_head_tip_w_backward_50thd_minor_axis_50th','d_relative_to_tail_base_radial_velocity_tail_tip_w_backward_90th','angular_velocity_head_tip_abs_50th','motion_mode_forward_frequencywidth_tail_base_50th','d_curvature_mean_neck_w_forward_abs_IQR','angular_velocity_tail_base_w_forward_abs_IQR','curvature_std_head_abs_50thspeed_hips_w_forward_IQR','d_angular_velocity_tail_base_w_backward_abs_IQR','d_relative_to_body_radial_velocity_head_tip_w_backward_10th','d_relative_to_body_radial_velocity_tail_tip_w_forward_10th','d_curvature_mean_neck_w_backward_abs_10th','d_relative_to_head_base_radial_velocity_head_tip_w_forward_IQR','relative_to_neck_angular_velocity_head_tip_w_backward_abs_10th','relative_to_head_base_radial_velocity_head_tip_w_backward_10th','d_length_w_backward_50th','curvature_hips_abs_IQR','d_curvature_std_neck_w_backward_abs_50th','d_angular_velocity_neck_w_forward_abs_10thd_speed_neck_50th','d_relative_to_body_radial_velocity_neck_w_backward_50th','d_major_axis_w_backward_10th','d_curvature_std_head_w_backward_abs_10th','d_path_curvature_midbody_w_backward_abs_90th','d_relative_to_body_angular_velocity_neck_w_backward_abs_90th','d_relative_to_hips_radial_velocity_tail_tip_50th', 'width_tail_base_w_forward_10th']
+#df_use = df.filter(regex='_midbody_', axis=1)
+df_use = df.filter(items = Tierpsy_256)
+features = df_use.columns
+df_use.insert(0, 'group', df['genotype'])
+#df_use.insert(1,'genotype', df['genotype'])
+
+
+#Perform t_test (compare average of N2 data to average of each strain's plate)
+t_test_results = []
+
+df_control = df_use.loc[df_use['genotype'] == 'N2']
+df_grouped = df_use.groupby('group')
+for group_name, df_group in df_grouped:
+      for column in df_group.columns[2:]:
+        control = df_control[column]
+        sample = df_group[column]
+        _,p = stats.ttest_ind(control, sample, nan_policy = 'omit') 
+        info = [group_name, column]
+        t_test_results.append(info + [p])
+df_results = pd.DataFrame(data = t_test_results)
+df_results = df_results.rename(columns = {0:'group', 1:'feature', 2:'p-value'})
+
+#get most significant features performing a two stage FDR correction (I use the number of ttest performed, so the number of features compared. You could also use the number of plates analysed (as features are extracted from averages of worms tracks per plate), or per worm (not recommend because at some points worm tracks are lost))
+df_results_corrected = smm.multipletests(df_results['p-value'], alpha=0.05, method='fdr_tsbky', is_sorted = False, returnsorted = False) 
+df_results.insert(3, 'p-value-corrected', df_results_corrected[1])
+
+
+#Plot heatmap not corrected
+df_heatmap = pd.pivot_table(df_results, index='group', columns = 'feature', values = 'p-value')
+#cmap = sns.heatmap(df_heatmap, vmin=0, vmax=0.06)
+#sns.set(font_scale = 0.5)
+#sns.set_style('ticks')
+sns.set(font_scale = 0.5)
+cmap = sns.clustermap(df_heatmap, vmin = 0, vmax = 0.06, figsize = (100, 20), row_cluster = False, col_cluster = False)
+plt.setp(cmap.ax_heatmap.yaxis.get_majorticklabels(), rotation=0)
+plt.setp(cmap.ax_heatmap.xaxis.get_majorticklabels(), rotation=45)
+sns.set_style('ticks')
+
+#Plot heatmap corrected
+df_heatmap_corrected = pd.pivot_table(df_results, index='group', columns = 'feature', values = 'p-value-corrected')
+#cmap = sns.heatmap(df_heatmap, vmin=0, vmax=0.06)
+#sns.set(font_scale = 0.5)
+#sns.set_style('ticks')
+sns.set(font_scale = 0.5)
+cmap = sns.clustermap(df_heatmap, vmin = 0, vmax = 0.06, figsize = (100, 20), row_cluster = False, col_cluster = False)
+plt.setp(cmap.ax_heatmap.yaxis.get_majorticklabels(), rotation=0)
+plt.setp(cmap.ax_heatmap.xaxis.get_majorticklabels(), rotation=45)
+sns.set_style('ticks')
+
+
+#%% SECOND HALF OF THE CODE
+#Filter data based on smaller dataset that doesn't require correction
+dfF = pd.read_csv('C:/Users/Lidia/Desktop/Generate neuropeptide strains/Neuropeptide_strains_tracking/Summary_files/features_summary_tierpsy_plate_manual_20191105_150622.csv')
+#we use for filtering the two sets described in 'A.Javer, L.Ripoll-Sanchez, AEX Brown 2018 paper', for quick phenotypic fingerprints)
+Tierpsy_16 = ['genotype', 'length_90th', 'width_midbody_norm_10th', 'curvature_hips_abs_90th', 'curvature_head_abs_90th', 'motion_mode_paused_fraction', 'motion_mode_paused_frequency', 'd_curvature_hips_abs_90th', 'd_curvature_head_abs_90th', 'width_head_base_norm_10th', 'motion_mode_backward_frequency', 'quirkiness_50th', 'minor_axis_50th', 'curvature_midbody_norm_abs_50th', 'relative_to_hips_radial_velocity_tail_tip_50th', 'relative_to_head_base_radial_velocity_head_tip_50th','relative_to_head_base_angular_velocity_head_tip_abs_90th']
+#Tierpsy_8 =  ['genotype', 'length_90th', 'width_midbody_norm_10th', 'curvature_hips_abs_90th', 'curvature_head_abs_90th', 'motion_mode_paused_fraction', 'motion_mode_paused_frequency', 'd_curvature_hips_abs_90th', 'd_curvature_head_abs_90th']
+dfF_16 = dfF.filter(items = Tierpsy_16) #it generates the filtered version of dfF 
+dfF_16.insert(0, 'group', df['genotype']) #adds group needed for selecting the strain group during ttest
+
+#Perform t_test (compare average of N2 data to average of each strain's plate)
+t_test_results_16 = []
+
+dfF16_control = dfF_16.loc[df_use['genotype'] == 'N2']
+dfF16_grouped = dfF_16.groupby('group')
+for group16_name, dfF16_group in dfF16_grouped:
+      for column in dfF16_group.columns[2:]:
+        control = dfF16_control[column]
+        sample = dfF16_group[column]
+        _,p = stats.ttest_ind(control, sample, nan_policy = 'omit') 
+        info = [group16_name, column]
+        t_test_results_16.append(info + [p])
+dfF_results_16 = pd.DataFrame(data = t_test_results_16)
+dfF_results_16 = dfF_results_16.rename(columns = {0:'group', 1:'feature', 2:'p-value'})
+
+#Plot heatmap not corrected, as we are doing ttest with only 16 features we don't have a relevant enough multiple comparisons problem
+df_heatmap_16 = pd.pivot_table(dfF_results_16, index='group', columns = 'feature', values = 'p-value')
+#cmap = sns.heatmap(df_heatmap, vmin=0, vmax=0.06)
+#sns.set(font_scale = 0.5)
+#sns.set_style('ticks')
+sns.set(font_scale = 2.5)
+cmap = sns.clustermap(df_heatmap_16, vmin = 0, vmax = 0.05, figsize = (16, 20), row_cluster = False, col_cluster = False)
+plt.setp(cmap.ax_heatmap.yaxis.get_majorticklabels(), rotation=0)
+plt.setp(cmap.ax_heatmap.xaxis.get_majorticklabels(), rotation=90)
+sns.set_style('ticks')
